@@ -168,7 +168,7 @@ class TCPConnection(BMProto, TLSDispatcher):
             with self.objectsNewToThemLock:
                 for objHash in Inventory().unexpired_hashes_by_stream(stream):
                     # don't advertise stem objects on bigInv
-                    if objHash in Dandelion().hashMap:
+                    if Dandelion().hasHash(objHash):
                         continue
                     bigInvList[objHash] = 0
                     self.objectsNewToThem[objHash] = time.time()
@@ -292,7 +292,10 @@ class TCPServer(AdvancedDispatcher):
             if len(network.connectionpool.BMConnectionPool().inboundConnections) + \
                 len(network.connectionpool.BMConnectionPool().outboundConnections) > \
                 BMConfigParser().safeGetInt("bitmessagesettings", "maxtotalconnections") + \
-                BMConfigParser().safeGetInt("bitmessagesettings", "maxbootstrapconnections"):
+                BMConfigParser().safeGetInt("bitmessagesettings", "maxbootstrapconnections") + 10:
+                # 10 is a sort of buffer, in between it will go through the version handshake
+                # and return an error to the peer
+                logger.warning("Server full, dropping connection")
                 sock.close()
                 return
             try:

@@ -3,6 +3,7 @@ import time
 
 from advanceddispatcher import AdvancedDispatcher
 import asyncore_pollchoose as asyncore
+from bmconfigparser import BMConfigParser
 from debug import logger
 import network.connectionpool
 import state
@@ -37,6 +38,8 @@ class Proxy(AdvancedDispatcher):
     # instances should change too
     _proxy = ("127.0.0.1", 9050)
     _auth = None
+    _onion_proxy = None
+    _onion_auth = None
     _remote_dns = True
 
     @property
@@ -58,6 +61,25 @@ class Proxy(AdvancedDispatcher):
     def auth(self, authTuple):
         self.__class__._auth = authTuple
 
+    @property
+    def onion_proxy(self):
+        return self.__class__._onion_proxy
+
+    @onion_proxy.setter
+    def onion_proxy(self, address):
+        if address is not None and (not isinstance(address, tuple) or (len(address) < 2) or \
+                (not isinstance(address[0], str) or not isinstance(address[1], int))):
+            raise ValueError
+        self.__class__._onion_proxy = address
+
+    @property
+    def onion_auth(self):
+        return self.__class__._onion_auth
+
+    @onion_auth.setter
+    def onion_auth(self, authTuple):
+        self.__class__._onion_auth = authTuple
+
     def __init__(self, address):
         if not isinstance(address, state.Peer):
             raise ValueError
@@ -66,7 +88,15 @@ class Proxy(AdvancedDispatcher):
         self.isOutbound = True
         self.fullyEstablished = False
         self.create_socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.connect(self.proxy)
+        if BMConfigParser().safeGetBoolean("bitmessagesettings", "socksauthentication"):
+            self.auth = (BMConfigParser().safeGet("bitmessagesettings", "socksusername"),
+                    BMConfigParser().safeGet("bitmessagesettings", "sockspassword"))
+        else:
+            self.auth = None
+        if address.host.endswith(".onion") and self.onion_proxy is not None:
+            self.connect(self.onion_proxy)
+        else:
+            self.connect(self.proxy)
 
     def handle_connect(self):
         self.set_state("init")

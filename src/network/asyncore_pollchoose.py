@@ -52,6 +52,7 @@ import select
 import socket
 import sys
 import time
+from threading import current_thread
 import warnings
 
 import os
@@ -112,6 +113,8 @@ uploadBucket = 0
 sentBytes = 0
 
 def read(obj):
+    if not can_receive():
+        return
     try:
         obj.handle_read_event()
     except _reraised_exceptions:
@@ -120,6 +123,8 @@ def read(obj):
         obj.handle_error()
 
 def write(obj):
+    if not can_send():
+        return
     try:
         obj.handle_write_event()
     except _reraised_exceptions:
@@ -129,19 +134,25 @@ def write(obj):
 
 def set_rates(download, upload):
     global maxDownloadRate, maxUploadRate, downloadBucket, uploadBucket, downloadTimestamp, uploadTimestamp
-    maxDownloadRate = float(download)
-    maxUploadRate = float(upload)
+    maxDownloadRate = float(download) * 1024
+    maxUploadRate = float(upload) * 1024
     downloadBucket = maxDownloadRate
     uploadBucket = maxUploadRate
     downloadTimestamp = time.time()
     uploadTimestamp = time.time()
+
+def can_receive():
+    return maxDownloadRate == 0 or downloadBucket > 0
+
+def can_send():
+    return maxUploadRate == 0 or uploadBucket > 0
 
 def update_received(download=0):
     global receivedBytes, downloadBucket, downloadTimestamp
     currentTimestamp = time.time()
     receivedBytes += download
     if maxDownloadRate > 0:
-        bucketIncrease = int(maxDownloadRate * (currentTimestamp - downloadTimestamp))
+        bucketIncrease = maxDownloadRate * (currentTimestamp - downloadTimestamp)
         downloadBucket += bucketIncrease
         if downloadBucket > maxDownloadRate:
             downloadBucket = int(maxDownloadRate)
@@ -153,7 +164,7 @@ def update_sent(upload=0):
     currentTimestamp = time.time()
     sentBytes += upload
     if maxUploadRate > 0:
-        bucketIncrease = int(maxUploadRate * (currentTimestamp - uploadTimestamp))
+        bucketIncrease = maxUploadRate * (currentTimestamp - uploadTimestamp)
         uploadBucket += bucketIncrease
         if uploadBucket > maxUploadRate:
             uploadBucket = int(maxUploadRate)
@@ -170,9 +181,9 @@ def _exception(obj):
 
 def readwrite(obj, flags):
     try:
-        if flags & select.POLLIN:
+        if flags & select.POLLIN and can_receive():
             obj.handle_read_event()
-        if flags & select.POLLOUT:
+        if flags & select.POLLOUT and can_send():
             obj.handle_write_event()
         if flags & select.POLLPRI:
             obj.handle_expt_event()
@@ -236,6 +247,8 @@ def select_poller(timeout=0.0, map=None):
             if obj is None:
                 continue
             _exception(obj)
+    else:
+        current_thread().stop.wait(timeout)
 
 def poll_poller(timeout=0.0, map=None):
     """A poller which uses poll(), available on most UNIXen."""
@@ -284,6 +297,8 @@ def poll_poller(timeout=0.0, map=None):
             if obj is None:
                 continue
             readwrite(obj, flags)
+    else:
+        current_thread().stop.wait(timeout)
 
 # Aliases for backward compatibility
 poll = select_poller
@@ -339,46 +354,82 @@ def epoll_poller(timeout=0.0, map=None):
             if obj is None:
                 continue
             readwrite(obj, flags) 
+    else:
+        current_thread().stop.wait(timeout)
 
 def kqueue_poller(timeout=0.0, map=None):
     """A poller which uses kqueue(), BSD specific."""
     if map is None:
         map = socket_map
+    try:
+        kqueue_poller.pollster
+    except AttributeError:
+        kqueue_poller.pollster = select.kqueue()
     if map:
-        kqueue = select.kqueue()
-        flags = select.KQ_EV_ADD | select.KQ_EV_ENABLE
+        updates = []
         selectables = 0
         for fd, obj in map.items():
             kq_filter = 0
             if obj.readable():
-                kq_filter |= select.KQ_FILTER_READ
-            if obj.writable():
-                kq_filter |= select.KQ_FILTER_WRITE
-            if kq_filter:
-                try:
-                    ev = select.kevent(fd, filter=kq_filter, flags=flags)
-                    kqueue.control([ev], 0)
-                    selectables += 1
-                except IOError:
-                    pass
+                kq_filter |= 1
+                selectables += 1
+            if obj.writable() and not obj.accepting:
+                kq_filter |= 2
+                selectables += 1
+            if kq_filter != obj.poller_filter:
+                # unlike other pollers, READ and WRITE aren't OR able but have
+                # to be set and checked separately
+                if kq_filter & 1 != obj.poller_filter & 1:
+                    poller_flags = select.KQ_EV_ADD
+                    if kq_filter & 1:
+                        poller_flags |= select.KQ_EV_ENABLE
+                    else:
+                        poller_flags |= select.KQ_EV_DISABLE
+                    updates.append(select.kevent(fd, filter=select.KQ_FILTER_READ, flags=poller_flags))
+                if kq_filter & 2 != obj.poller_filter & 2:
+                    poller_flags = select.KQ_EV_ADD
+                    if kq_filter & 2:
+                        poller_flags |= select.KQ_EV_ENABLE
+                    else:
+                        poller_flags |= select.KQ_EV_DISABLE
+                    updates.append(select.kevent(fd, filter=select.KQ_FILTER_WRITE, flags=poller_flags))
+                obj.poller_filter = kq_filter
 
-        events = kqueue.control(None, selectables, timeout)
-        for event in random.sample(events, len(events)):
+        if not selectables:
+            # unlike other pollers, kqueue poll does not wait if there are no
+            # filters setup
+            current_thread().stop.wait(timeout)
+            return
+
+        events = kqueue_poller.pollster.control(updates, selectables, timeout)
+        if len(events) > 1:
+            events = random.sample(events, len(events))
+
+        for event in events:
             fd = event.ident
             obj = map.get(fd)            
             if obj is None:
+                continue
+            if event.flags & select.KQ_EV_ERROR:
+                _exception(obj)
+                continue
+            if event.flags & select.KQ_EV_EOF and event.data and event.fflags:
+                obj.handle_close()
                 continue
             if event.filter == select.KQ_FILTER_READ:
                 read(obj)
             if event.filter == select.KQ_FILTER_WRITE:
                 write(obj)
-        kqueue.close()
+    else:
+        current_thread().stop.wait(timeout)
 
 
 def loop(timeout=30.0, use_poll=False, map=None, count=None, 
          poller=None):
     if map is None:
         map = socket_map
+    if count is None:
+        count =  True
     # code which grants backward compatibility with "use_poll" 
     # argument which should no longer be used in favor of
     # "poller"
@@ -395,27 +446,20 @@ def loop(timeout=30.0, use_poll=False, map=None, count=None,
         elif hasattr(select, 'select'):
             poller = select_poller
 
-    if count is None:
-        while map:
-            # fill buckets first
-            update_sent()
-            update_received()
-            # then poll
-            poller(timeout, map)
+    if timeout == 0:
+        deadline = 0
     else:
-        if timeout == 0:
-            deadline = 0
-        else:
-            deadline = time.time() + timeout
-        while map and count > 0:
-            # fill buckets first
-            update_sent()
-            update_received()
-            subtimeout = deadline - time.time()
-            if subtimeout <= 0:
-                break
-            poller(subtimeout, map)
-            # then poll
+        deadline = time.time() + timeout
+    while count:
+        # fill buckets first
+        update_sent()
+        update_received()
+        subtimeout = deadline - time.time()
+        if subtimeout <= 0:
+            break
+        # then poll
+        poller(subtimeout, map)
+        if type(count) is int:
             count = count - 1
 
 class dispatcher:
@@ -485,27 +529,38 @@ class dispatcher:
             map = self._map
         map[self._fileno] = self
         self.poller_flags = 0
+        self.poller_filter = 0
 
     def del_channel(self, map=None):
         fd = self._fileno
         if map is None:
             map = self._map
-        self.poller_flags = 0
-        self.poller_registered = False
         if fd in map:
             #self.log_info('closing channel %d:%s' % (fd, self))
             del map[fd]
+        if self._fileno:
+            try:
+                kqueue_poller.pollster.control([select.kevent(fd, select.KQ_FILTER_READ, select.KQ_EV_DELETE)], 0)
+            except (AttributeError, KeyError, TypeError, IOError, OSError):
+                pass
+            try:
+                kqueue_poller.pollster.control([select.kevent(fd, select.KQ_FILTER_WRITE, select.KQ_EV_DELETE)], 0)
+            except (AttributeError, KeyError, TypeError, IOError, OSError):
+                pass
+            try:
+                epoll_poller.pollster.unregister(fd)
+            except (AttributeError, KeyError, TypeError, IOError):
+                # no epoll used, or not registered
+                pass
+            try:
+                poll_poller.pollster.unregister(fd)
+            except (AttributeError, KeyError, TypeError, IOError):
+                # no poll used, or not registered
+                pass
         self._fileno = None
-        try:
-            epoll_poller.pollster.unregister(fd)
-        except (AttributeError, KeyError, TypeError, IOError):
-            # no epoll used, or not registered
-            pass
-        try:
-            poll_poller.pollster.unregister(fd)
-        except (AttributeError, KeyError, TypeError, IOError):
-            # no poll used, or not registered
-            pass
+        self.poller_flags = 0
+        self.poller_filter = 0
+        self.poller_registered = False
 
     def create_socket(self, family=socket.AF_INET, socket_type=socket.SOCK_STREAM):
         self.family_and_type = family, socket_type

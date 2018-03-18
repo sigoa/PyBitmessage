@@ -83,7 +83,7 @@ if __name__ == "__main__":
             'qrcode': ['qrcode'],
             'pyopencl': ['pyopencl'],
             'notify2': ['notify2'],
-            'sound:platform_system=="Windows"': ['winsound']
+            'sound;platform_system=="Windows"': ['winsound']
         },
         classifiers=[
             "License :: OSI Approved :: MIT License"
@@ -112,8 +112,7 @@ if __name__ == "__main__":
         zip_safe=False,
         entry_points={
             'bitmessage.gui.menu': [
-                'popMenuYourIdentities.qrcode = '
-                'pybitmessage.plugins.qrcodeui [qrcode]'
+                'address.qrcode = pybitmessage.plugins.menu_qrcode [qrcode]'
             ],
             'bitmessage.notification.message': [
                 'notify2 = pybitmessage.plugins.notification_notify2'
