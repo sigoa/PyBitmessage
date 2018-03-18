@@ -47,9 +47,7 @@ from account import (
     GatewayAccount, MailchuckAccount, AccountColor)
 import dialogs
 from helper_generic import powQueueSize
-from inventory import (
-    PendingDownloadQueue, PendingUpload,
-    PendingUploadDeadlineException)
+from network.stats import pendingDownload, pendingUpload
 from uisignaler import UISignaler
 import knownnodes
 import paths
@@ -256,6 +254,18 @@ class MyForm(settingsmixin.SMainWindow):
             self.connect(self.ui.treeWidgetYourIdentities, QtCore.SIGNAL(
                 'customContextMenuRequested(const QPoint&)'),
                         self.on_context_menuYourIdentities)
+
+        # load all gui.menu plugins with prefix 'address'
+        self.menu_plugins = {'address': []}
+        for plugin in get_plugins('gui.menu', 'address'):
+            try:
+                handler, title = plugin(self)
+            except TypeError:
+                continue
+            self.menu_plugins['address'].append(
+                self.ui.addressContextMenuToolbarYourIdentities.addAction(
+                    title, handler
+                ))
 
     def init_chan_popup_menu(self, connectSignal=True):
         # Popup menu for the Channels tab
@@ -598,7 +608,7 @@ class MyForm(settingsmixin.SMainWindow):
         if 'win32' in sys.platform or 'win64' in sys.platform:
             # Auto-startup for Windows
             RUN_PATH = "HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Run"
-            self.settings = QSettings(RUN_PATH, QSettings.NativeFormat)
+            self.settings = QtCore.QSettings(RUN_PATH, QtCore.QSettings.NativeFormat)
             self.settings.remove(
                 "PyBitmessage")  # In case the user moves the program and the registry entry is no longer valid, this will delete the old registry entry.
             if BMConfigParser().getboolean('bitmessagesettings', 'startonlogon'):
@@ -1729,6 +1739,8 @@ class MyForm(settingsmixin.SMainWindow):
                         sent.item(i, 3).setText(textToDisplay)
 
     def updateSentItemStatusByAckdata(self, ackdata, textToDisplay):
+        if type(ackdata) is str:
+            ackdata = QtCore.QByteArray(ackdata)
         for sent in [self.ui.tableWidgetInbox, self.ui.tableWidgetInboxSubscriptions, self.ui.tableWidgetInboxChans]:
             treeWidget = self.widgetConvert(sent)
             if self.getCurrentFolder(treeWidget) != "sent":
@@ -2095,6 +2107,7 @@ class MyForm(settingsmixin.SMainWindow):
                 # We don't actually need the ackdata for acknowledgement since
                 # this is a broadcast message, but we can use it to update the
                 # user interface when the POW is done generating.
+                streamNumber = decodeAddress(fromAddress)[2]
                 ackdata = genAckPayload(streamNumber, 0)
                 toAddress = str_broadcast_subscribers
                 ripe = ''
@@ -2231,7 +2244,7 @@ class MyForm(settingsmixin.SMainWindow):
             treeWidget = self.widgetConvert(sent)
             if self.getCurrentFolder(treeWidget) != "sent":
                 continue
-            if treeWidget == self.ui.treeWidgetYourIdentities and self.getCurrentAccount(treeWidget) != fromAddress:
+            if treeWidget == self.ui.treeWidgetYourIdentities and self.getCurrentAccount(treeWidget) not in (fromAddress, None, False):
                 continue
             elif treeWidget in [self.ui.treeWidgetSubscriptions, self.ui.treeWidgetChans] and self.getCurrentAccount(treeWidget) != toAddress:
                 continue
@@ -2239,7 +2252,7 @@ class MyForm(settingsmixin.SMainWindow):
                 continue
             
             self.addMessageListItemSent(sent, toAddress, fromAddress, subject, "msgqueued", ackdata, time.time())
-            self.getAccountTextedit(acct).setPlainText(unicode(message, 'utf-8)', 'replace'))
+            self.getAccountTextedit(acct).setPlainText(unicode(message, 'utf-8', 'replace'))
             sent.setCurrentCell(0, 0)
 
     def displayNewInboxMessage(self, inventoryHash, toAddress, fromAddress, subject, message):
@@ -2545,7 +2558,7 @@ class MyForm(settingsmixin.SMainWindow):
             if 'win32' in sys.platform or 'win64' in sys.platform:
             # Auto-startup for Windows
                 RUN_PATH = "HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Run"
-                self.settings = QSettings(RUN_PATH, QSettings.NativeFormat)
+                self.settings = QtCore.QSettings(RUN_PATH, QtCore.QSettings.NativeFormat)
                 if BMConfigParser().getboolean('bitmessagesettings', 'startonlogon'):
                     self.settings.setValue("PyBitmessage", sys.argv[0])
                 else:
@@ -2698,10 +2711,10 @@ class MyForm(settingsmixin.SMainWindow):
         waitForSync = False
 
         # C PoW currently doesn't support interrupting and OpenCL is untested
-        if getPowType() == "python" and (powQueueSize() > 0 or PendingUpload().len() > 0):
+        if getPowType() == "python" and (powQueueSize() > 0 or pendingUpload() > 0):
             reply = QtGui.QMessageBox.question(self, _translate("MainWindow", "Proof of work pending"),
                     _translate("MainWindow", "%n object(s) pending proof of work", None, QtCore.QCoreApplication.CodecForTr, powQueueSize()) + ", " +
-                    _translate("MainWindow", "%n object(s) waiting to be distributed", None, QtCore.QCoreApplication.CodecForTr, PendingUpload().len()) + "\n\n" + 
+                    _translate("MainWindow", "%n object(s) waiting to be distributed", None, QtCore.QCoreApplication.CodecForTr, pendingUpload()) + "\n\n" + 
                     _translate("MainWindow", "Wait until these tasks finish?"),
                     QtGui.QMessageBox.Yes|QtGui.QMessageBox.No|QtGui.QMessageBox.Cancel, QtGui.QMessageBox.Cancel)
             if reply == QtGui.QMessageBox.No:
@@ -2709,16 +2722,14 @@ class MyForm(settingsmixin.SMainWindow):
             elif reply == QtGui.QMessageBox.Cancel:
                 return
 
-        if PendingDownloadQueue.totalSize() > 0:
+        if pendingDownload() > 0:
             reply = QtGui.QMessageBox.question(self, _translate("MainWindow", "Synchronisation pending"),
-                    _translate("MainWindow", "Bitmessage hasn't synchronised with the network, %n object(s) to be downloaded. If you quit now, it may cause delivery delays. Wait until the synchronisation finishes?", None, QtCore.QCoreApplication.CodecForTr, PendingDownloadQueue.totalSize()),
+                    _translate("MainWindow", "Bitmessage hasn't synchronised with the network, %n object(s) to be downloaded. If you quit now, it may cause delivery delays. Wait until the synchronisation finishes?", None, QtCore.QCoreApplication.CodecForTr, pendingDownload()),
                     QtGui.QMessageBox.Yes|QtGui.QMessageBox.No|QtGui.QMessageBox.Cancel, QtGui.QMessageBox.Cancel)
             if reply == QtGui.QMessageBox.Yes:
                 waitForSync = True
             elif reply == QtGui.QMessageBox.Cancel:
                 return
-            else:
-                PendingDownloadQueue.stop()
 
         if shared.statusIconColor == 'red' and not BMConfigParser().safeGetBoolean(
                 'bitmessagesettings', 'dontconnect'):
@@ -2749,7 +2760,7 @@ class MyForm(settingsmixin.SMainWindow):
         if waitForSync:
             self.updateStatusBar(_translate(
                 "MainWindow", "Waiting for finishing synchronisation..."))
-            while PendingDownloadQueue.totalSize() > 0:
+            while pendingDownload() > 0:
                 time.sleep(0.5)
                 QtCore.QCoreApplication.processEvents(
                     QtCore.QEventLoop.AllEvents, 1000
@@ -2791,19 +2802,18 @@ class MyForm(settingsmixin.SMainWindow):
             # check if upload (of objects created locally) pending
             self.updateStatusBar(_translate(
                 "MainWindow", "Waiting for objects to be sent... %1%").arg(50))
-            try:
-                while PendingUpload().progress() < 1:
-                    self.updateStatusBar(_translate(
-                        "MainWindow",
-                        "Waiting for objects to be sent... %1%"
-                        ).arg(int(50 + 20 * PendingUpload().progress()))
-                    )
-                    time.sleep(0.5)
-                    QtCore.QCoreApplication.processEvents(
-                        QtCore.QEventLoop.AllEvents, 1000
-                    )
-            except PendingUploadDeadlineException:
-                pass
+            maxPendingUpload = max(1, pendingUpload())
+                   
+            while pendingUpload() > 1:
+                self.updateStatusBar(_translate(
+                    "MainWindow",
+                    "Waiting for objects to be sent... %1%"
+                    ).arg(int(50 + 20 * (pendingUpload()/maxPendingUpload)))
+                )
+                time.sleep(0.5)
+                QtCore.QCoreApplication.processEvents(
+                    QtCore.QEventLoop.AllEvents, 1000
+                )
 
             QtCore.QCoreApplication.processEvents(
                 QtCore.QEventLoop.AllEvents, 1000
@@ -3423,6 +3433,10 @@ class MyForm(settingsmixin.SMainWindow):
             self.popMenuSubscriptions.addSeparator()
             self.popMenuSubscriptions.addAction(self.actionsubscriptionsClipboard)
             self.popMenuSubscriptions.addSeparator()
+            # preloaded gui.menu plugins with prefix 'address'
+            for plugin in self.menu_plugins['address']:
+                self.popMenuSubscriptions.addAction(plugin)
+            self.popMenuSubscriptions.addSeparator()
         self.popMenuSubscriptions.addAction(self.actionMarkAllRead)
         self.popMenuSubscriptions.exec_(
             self.ui.treeWidgetSubscriptions.mapToGlobal(point))
@@ -3833,12 +3847,12 @@ class MyForm(settingsmixin.SMainWindow):
             self.popMenuYourIdentities.addAction(self.actionSpecialAddressBehaviorYourIdentities)
             self.popMenuYourIdentities.addAction(self.actionEmailGateway)
             self.popMenuYourIdentities.addSeparator()
+            if currentItem.type != AccountMixin.ALL:
+                # preloaded gui.menu plugins with prefix 'address'
+                for plugin in self.menu_plugins['address']:
+                    self.popMenuYourIdentities.addAction(plugin)
+            self.popMenuYourIdentities.addSeparator()
         self.popMenuYourIdentities.addAction(self.actionMarkAllRead)
-
-        if get_plugins:
-            for plugin in get_plugins(
-                    'gui.menu', 'popMenuYourIdentities'):
-                plugin(self)
 
         self.popMenuYourIdentities.exec_(
             self.ui.treeWidgetYourIdentities.mapToGlobal(point))
@@ -3858,6 +3872,10 @@ class MyForm(settingsmixin.SMainWindow):
             else:
                 self.popMenu.addAction(self.actionEnable)
             self.popMenu.addAction(self.actionSetAvatar)
+            self.popMenu.addSeparator()
+            # preloaded gui.menu plugins with prefix 'address'
+            for plugin in self.menu_plugins['address']:
+                self.popMenu.addAction(plugin)
             self.popMenu.addSeparator()
         self.popMenu.addAction(self.actionMarkAllRead)
         self.popMenu.exec_(
