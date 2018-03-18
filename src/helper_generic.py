@@ -6,7 +6,7 @@ from multiprocessing import current_process
 from threading import current_thread, enumerate
 import traceback
 
-from bmconfigparser import BMConfigParser
+import shared
 from debug import logger
 import queues
 import shutdown
@@ -51,10 +51,10 @@ def signal_handler(signal, frame):
         raise SystemExit
     if "PoolWorker" in current_process().name:
         raise SystemExit
-    if current_thread().name != "PyBitmessage":
+    if current_thread().name not in ("PyBitmessage", "MainThread"):
         return
     logger.error("Got signal %i", signal)
-    if BMConfigParser().safeGetBoolean('bitmessagesettings', 'daemon'):
+    if shared.thisapp.daemon:
         shutdown.doCleanShutdown()
     else:
         allThreadTraceback(frame)

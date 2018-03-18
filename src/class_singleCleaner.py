@@ -10,7 +10,6 @@ from helper_sql import *
 from helper_threading import *
 from inventory import Inventory
 from network.connectionpool import BMConnectionPool
-from network.dandelion import Dandelion
 from debug import logger
 import knownnodes
 import queues
@@ -66,7 +65,7 @@ class singleCleaner(threading.Thread, StoppableThread):
             # If we are running as a daemon then we are going to fill up the UI
             # queue which will never be handled by a UI. We should clear it to
             # save memory.
-            if BMConfigParser().safeGetBoolean('bitmessagesettings', 'daemon'):
+            if shared.thisapp.daemon:
                 queues.UISignalQueue.queue.clear()
             if timeWeLastClearedInventoryAndPubkeysTables < int(time.time()) - 7380:
                 timeWeLastClearedInventoryAndPubkeysTables = int(time.time())
@@ -121,7 +120,7 @@ class singleCleaner(threading.Thread, StoppableThread):
                     if "Errno 28" in str(err):
                         logger.fatal('(while receiveDataThread knownnodes.needToWriteKnownNodesToDisk) Alert: Your disk or data storage volume is full. ')
                         queues.UISignalQueue.put(('alert', (tr._translate("MainWindow", "Disk full"), tr._translate("MainWindow", 'Alert: Your disk or data storage volume is full. Bitmessage will now exit.'), True)))
-                        if shared.daemon:
+                        if shared.thisapp.daemon:
                             os._exit(0)
                 shared.needToWriteKnownNodesToDisk = False
 
@@ -133,8 +132,6 @@ class singleCleaner(threading.Thread, StoppableThread):
             # inv/object tracking
             for connection in BMConnectionPool().inboundConnections.values() + BMConnectionPool().outboundConnections.values():
                 connection.clean()
-            # dandelion fluff trigger by expiration
-            Dandelion().expire()
 
             # discovery tracking
             exp = time.time() - singleCleaner.expireDiscoveredPeers

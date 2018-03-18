@@ -220,8 +220,6 @@ class Main:
             elif opt in ("-c", "--curses"):
                 state.curses = True
 
-        shared.daemon = daemon
-
         # is the application already running?  If yes then exit.
         shared.thisapp = singleinstance("", daemon)
 
@@ -233,6 +231,11 @@ class Main:
         self.setSignalHandler()
 
         helper_threading.set_thread_name("PyBitmessage")
+
+        state.dandelion = BMConfigParser().safeGetInt('network', 'dandelion')
+        # dandelion requires outbound connections, without them, stem objects will get stuck forever
+        if state.dandelion and not BMConfigParser().safeGetBoolean('bitmessagesettings', 'sendoutgoingconnections'):
+            state.dandelion = 0
 
         helper_bootstrap.knownNodes()
         # Start the address generation thread
@@ -342,13 +345,21 @@ class Main:
                 sleep(1)
 
     def daemonize(self):
+        grandfatherPid = os.getpid()
+        parentPid = None
         try:
             if os.fork():
+                # unlock
+                shared.thisapp.cleanup()
+                # wait until grandchild ready
+                while True:
+                    sleep(1)
                 os._exit(0)
         except AttributeError:
             # fork not implemented
             pass
         else:
+            parentPid = os.getpid()
             shared.thisapp.lock() # relock
         os.umask(0)
         try:
@@ -358,12 +369,17 @@ class Main:
             pass
         try:
             if os.fork():
+                # unlock
+                shared.thisapp.cleanup()
+                # wait until child ready
+                while True:
+                    sleep(1)
                 os._exit(0)
         except AttributeError:
             # fork not implemented
             pass
         else:
-            shared.thisapp.lock(True) # relock and write pid
+            shared.thisapp.lock() # relock
         shared.thisapp.lockPid = None # indicate we're the final child
         sys.stdout.flush()
         sys.stderr.flush()
@@ -374,6 +390,10 @@ class Main:
             os.dup2(si.fileno(), sys.stdin.fileno())
             os.dup2(so.fileno(), sys.stdout.fileno())
             os.dup2(se.fileno(), sys.stderr.fileno())
+        if parentPid:
+            # signal ready
+            os.kill(parentPid, signal.SIGTERM)
+            os.kill(grandfatherPid, signal.SIGTERM)
 
     def setSignalHandler(self):
         signal.signal(signal.SIGINT, helper_generic.signal_handler)
