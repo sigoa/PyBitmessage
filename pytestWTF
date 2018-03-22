@@ -1,6 +1,10 @@
-echo wtf2
+echo vor bui
 python2 setup.py build
+echo vor inst
 python2 setup.py install --user
+echo vor daemon
 pybitmessage --daemon
+echo vor sleep
 sleep 100s
+echo geschlafen done 0
 exit 0
