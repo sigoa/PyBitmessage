@@ -3,4 +3,6 @@ python:
   - "2.7" 
 install:
   - echo wtf1
-  
+# command to run tests
+script: 
+  - pytestWTF  # or py.test for Python versions 3.5 and below
