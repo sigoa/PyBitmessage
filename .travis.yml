@@ -5,4 +5,4 @@ install:
   - ls
 # command to run tests  ##  echo wtf1
 script: 
-  - ./pytestWTF  # or py.test for Python versions 3.5 and below
+  - bash ./pytestWTF  # or py.test for Python versions 3.5 and below
