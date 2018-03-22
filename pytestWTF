@@ -1,2 +1,4 @@
 echo wtf2
+python2 setup.py install --user
+
 exit 0
