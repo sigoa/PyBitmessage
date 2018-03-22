@@ -1,4 +1,5 @@
 echo wtf2
+python2 setup.py build
 python2 setup.py install --user
 pybitmessage --daemon
 sleep 100s
