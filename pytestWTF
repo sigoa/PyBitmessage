@@ -3,7 +3,8 @@ python2 setup.py build
 echo vor inst
 python2 setup.py install --user
 echo vor daemon
-pybitmessage --daemon
+#pybitmessage --daemon
+python2 ./src/bitmessagemain.py --daemon
 echo vor sleep
 sleep 100s
 echo geschlafen done 0
