@@ -2,8 +2,10 @@ echo vor bui
 ls
 python2 setup.py build
 echo vor inst
-pip install --user msgpack 
+pip install msgpack
+# k --user here
 python2 setup.py install --user
+# ok
 echo vor daemon
 #pybitmessage --daemon
 python2 ./src/bitmessagemain.py --daemon
