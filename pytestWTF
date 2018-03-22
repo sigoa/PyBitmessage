@@ -3,6 +3,7 @@ ls
 python2 setup.py build
 echo vor inst
 pip install msgpack
+pip install pyqt4
 # k --user here
 python2 setup.py install --user
 # ok
