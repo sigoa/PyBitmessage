@@ -2,7 +2,7 @@ language: python
 python:
   - "2.7" 
 install:
-  - echo wtf1
-# command to run tests
+  - ls
+# command to run tests  ##  echo wtf1
 script: 
   - pytestWTF  # or py.test for Python versions 3.5 and below
