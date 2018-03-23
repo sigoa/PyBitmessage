@@ -82,13 +82,11 @@ def connectToStream(streamNumber):
         state.maximumNumberOfHalfOpenConnections = 9
     else:
         state.maximumNumberOfHalfOpenConnections = 64
-    try:
-        # don't overload Tor
-        if BMConfigParser().get(
-                'bitmessagesettings', 'socksproxytype') != 'none':
-            state.maximumNumberOfHalfOpenConnections = 4
-    except:
-        pass
+
+    # don't overload Tor
+    if BMConfigParser().safeGet(
+            'bitmessagesettings', 'socksproxytype', 'none') != 'none':
+        state.maximumNumberOfHalfOpenConnections = 4
 
     with knownnodes.knownNodesLock:
         if streamNumber not in knownnodes.knownNodes:
@@ -158,27 +156,33 @@ def _fixSocket():
         socket.IPV6_V6ONLY = 27
 
 
+def _getApiAddress():
+    if BMConfigParser().safeGetBoolean(
+            'bitmessagesettings', 'apienabled'):
+        return [
+            BMConfigParser().get('bitmessagesettings', 'apiinterface'),
+            BMConfigParser().getint('bitmessagesettings', 'apiport')
+        ]
+
+
 # This thread, of which there is only one, runs the API.
 class singleAPI(threading.Thread, helper_threading.StoppableThread):
     def __init__(self):
         threading.Thread.__init__(self, name="singleAPI")
+        self.address = _getApiAddress()
         self.initStop()
 
     def stopThread(self):
         super(singleAPI, self).stopThread()
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         try:
-            s.connect((
-                BMConfigParser().get('bitmessagesettings', 'apiinterface'),
-                BMConfigParser().getint('bitmessagesettings', 'apiport')
-            ))
+            s.connect(self.api_address)
             s.shutdown(socket.SHUT_RDWR)
             s.close()
         except:
             pass
 
     def run(self):
-        port = BMConfigParser().getint('bitmessagesettings', 'apiport')
         try:
             from errno import WSAEADDRINUSE
         except (ImportError, AttributeError):
@@ -186,21 +190,23 @@ class singleAPI(threading.Thread, helper_threading.StoppableThread):
         for attempt in range(50):
             try:
                 if attempt > 0:
-                    port = randint(32767, 65535)
+                    self.address[1] = randint(32767, 65535)
                 se = StoppableXMLRPCServer(
-                    (BMConfigParser().get(
-                        'bitmessagesettings', 'apiinterface'),
-                     port),
+                    self.address,
                     MySimpleXMLRPCRequestHandler, True, True)
             except socket.error as e:
                 if e.errno in (errno.EADDRINUSE, errno.WSAEADDRINUSE):
                     continue
+            except TypeError:
+                return
             else:
                 if attempt > 0:
                     BMConfigParser().set(
-                        "bitmessagesettings", "apiport", str(port))
+                        "bitmessagesettings", "apiport", self.address[1])
                     BMConfigParser().save()
                 break
+        else:
+            return
         se.register_introspection_functions()
         se.serve_forever()
 
@@ -312,21 +318,23 @@ class Main:
         shared.reloadMyAddressHashes()
         shared.reloadBroadcastSendersForWhichImWatching()
 
-        if BMConfigParser().safeGetBoolean('bitmessagesettings', 'apienabled'):
-            try:
-                apiNotifyPath = BMConfigParser().get(
-                    'bitmessagesettings', 'apinotifypath')
-            except:
-                apiNotifyPath = ''
-            if apiNotifyPath != '':
-                with shared.printLock:
-                    print('Trying to call', apiNotifyPath)
+        singleAPIThread = singleAPI()
+        singleAPIThread.daemon = True
+        singleAPIThread.start()
 
-                call([apiNotifyPath, "startingUp"])
-            singleAPIThread = singleAPI()
-            # close the main program even if there are threads left
-            singleAPIThread.daemon = True
-            singleAPIThread.start()
+        # FIXME: this should be inside of singleAPI instance
+        if singleAPIThread.address:  # apienabled
+            apiNotifyPath = BMConfigParser().safeGet(
+                'bitmessagesettings', 'apinotifypath', '')
+            if apiNotifyPath:
+                with shared.printLock:
+                    print('Trying to call %s' % apiNotifyPath)
+                try:
+                    call([apiNotifyPath, "startingUp"])
+                except OSError:
+                    print('Invalid executable path!')
+                    BMConfigParser().remove_option(
+                        'bitmessagesettings', 'apinotifypath')
 
         BMConnectionPool()
         asyncoreThread = BMNetworkThread()
@@ -463,15 +471,6 @@ All parameters are optional.
         with shared.printLock:
             print('Stopping Bitmessage Deamon.')
         shutdown.doCleanShutdown()
-
-    # TODO: nice function but no one is using this
-    def getApiAddress(self):
-        if not BMConfigParser().safeGetBoolean(
-                'bitmessagesettings', 'apienabled'):
-            return None
-        address = BMConfigParser().get('bitmessagesettings', 'apiinterface')
-        port = BMConfigParser().getint('bitmessagesettings', 'apiport')
-        return {'address': address, 'port': port}
 
 
 def main():

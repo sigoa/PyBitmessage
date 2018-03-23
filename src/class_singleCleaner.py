@@ -47,20 +47,15 @@ class singleCleaner(threading.Thread, StoppableThread):
     def run(self):
         gc.disable()
         timeWeLastClearedInventoryAndPubkeysTables = 0
-        try:
-            shared.maximumLengthOfTimeToBotherResendingMessages = (
-                float(BMConfigParser().get(
-                    'bitmessagesettings', 'stopresendingafterxdays')) *
-                24 * 60 * 60
-            ) + (
-                float(BMConfigParser().get(
-                    'bitmessagesettings', 'stopresendingafterxmonths')) *
-                (60 * 60 * 24 * 365)/12)
-        except:
-            # Either the user hasn't set stopresendingafterxdays and
-            # stopresendingafterxmonths yet or the options are missing
-            # from the config file.
-            shared.maximumLengthOfTimeToBotherResendingMessages = float('inf')
+        shared.maximumLengthOfTimeToBotherResendingMessages = (
+            float(BMConfigParser().safeGetInt(
+                    'bitmessagesettings', 'stopresendingafterxdays'))
+            * 24 * 60 * 60
+        ) + (
+            float(BMConfigParser().safeGetInt(
+                    'bitmessagesettings', 'stopresendingafterxmonths'))
+            * 60 * 60 * 24 * 365 / 12
+        ) or float('inf')
 
         # initial wait
         if state.shutdown == 0:
