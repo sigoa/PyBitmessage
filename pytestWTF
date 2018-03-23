@@ -2,7 +2,6 @@
 #sudo apt install  python-pyopencl   python-qt4   # qt4 err
 #echo pre bui
 #ls
-echo  bui only 4 real
 pip install msgpack # no --user here
 
 #python2 checkdeps.py
@@ -20,4 +19,5 @@ pip install msgpack # no --user here
 ##--daemon
 #exit 0
 #python2 setup.py install --user
-python2 setup.py build
+echo  py2 bui only - 4 real, cc hasher only at runtime
+python2 ./setup.py build
