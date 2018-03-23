@@ -1,5 +1,5 @@
-#pip install PyQt4 pyqt pyqt5
-sudo apt install python-qt4 python-pyopencl 
+#pip install PyQt4 pyqt pyqt5 # err
+#sudo apt install  python-pyopencl   python-qt4   # qt4 err
 #echo pre bui
 #ls
 echo pre inst
