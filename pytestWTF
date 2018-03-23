@@ -9,7 +9,7 @@ python2 setup.py install --user
 echo vor daemon
 #pybitmessage --daemon
 #pip install PyQt4
-apt install python-qt4
+sudo apt install python-qt4
 python2 ./src/bitmessagemain.py --curses
 ##--daemon
 echo vor sleep
