@@ -2,13 +2,12 @@
 #sudo apt install  python-pyopencl   python-qt4   # qt4 err
 #echo pre bui
 #ls
-echo pre inst
+echo  bui only 4 real
 pip install msgpack # no --user here
 
-python2 setup.py build
-python2 setup.py install --user
+#python2 checkdeps.py
 
-python2 checkdeps.py
+
 
 #echo vor sleep
 #sleep 10s
@@ -19,4 +18,6 @@ python2 checkdeps.py
 #python2 ./src/bitmessagemain.py --daemon
 ##--curses
 ##--daemon
-exit 0
+#exit 0
+#python2 setup.py install --user
+python2 setup.py build
