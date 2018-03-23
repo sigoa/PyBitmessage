@@ -1,19 +1,22 @@
-pip install PyQt4 pyqt pyqt5
-sudo apt install python-qt4
-echo vor bui
-ls
+#pip install PyQt4 pyqt pyqt5
+#sudo apt install python-qt4
+#echo pre bui
+#ls
+echo pre inst
+pip install msgpack # no --user here
+
 python2 setup.py build
-echo vor inst
-pip install msgpack
-# k --user here
 python2 setup.py install --user
-# ok
-echo vor daemon
+
+python2 checkdeps.py
+
+#echo vor sleep
+#sleep 10s
+#echo geschlafen done 0
+
+#echo vor daemon
 #pybitmessage --daemon
-python2 ./src/bitmessagemain.py 
+#python2 ./src/bitmessagemain.py --daemon
 ##--curses
 ##--daemon
-echo vor sleep
-sleep 10s
-echo geschlafen done 0
 exit 0
