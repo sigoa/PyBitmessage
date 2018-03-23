@@ -5,8 +5,7 @@
 PyBitmessage
 ============
 
-Bitmessage is a P2P communications protocol used to send encrypted messages. You need-not inherently trust any entities like root certificate authorities with decentralized BM. It uses strong authentication, which means that the sender of a message cannot be spoofed, and it aims to hide metadata, like the sender and receiver of messages, from passive eavesdroppers like those ongoing
-warrantless wiretapping programs by spy agencies etc..
+Bitmessage is a decentralized P2P communications protocol to send encrypted messages. With BM there is no need to trust such entities as e.g. root certificate authorities. BM uses strong authentication, so the sender of a message cannot be spoofed, and BM aims to hide metadata, e.g. the sender and receiver of messages. So passive eavesdroppers like those ongoing warrantless wiretapping programs by spy agencies etc. have little to look at.
 
 Development
 ----------
