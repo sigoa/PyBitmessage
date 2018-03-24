@@ -16,12 +16,10 @@ app_dir = os.path.dirname(os.path.abspath(__file__))
 os.chdir(app_dir)
 sys.path.insert(0, app_dir)
 
-
 import depends
 depends.check_dependencies()
 
-# Used to capture a Ctrl-C keypress so that Bitmessage can shutdown gracefully.
-import signal
+import signal  # Used to capture a Ctrl-C keypress so that Bitmessage can shutdown gracefully.
 # The next 3 are used for the API
 from singleinstance import singleinstance
 import errno
@@ -34,9 +32,7 @@ from random import randint
 import getopt
 
 from api import MySimpleXMLRPCRequestHandler, StoppableXMLRPCServer
-from helper_startup import (
-    isOurOperatingSystemLimitedToHavingVeryFewHalfOpenConnections
-)
+from helper_startup import isOurOperatingSystemLimitedToHavingVeryFewHalfOpenConnections
 
 import defaults
 import shared
@@ -77,17 +73,17 @@ def connectToStream(streamNumber):
     selfInitiatedConnections[streamNumber] = {}
 
     if isOurOperatingSystemLimitedToHavingVeryFewHalfOpenConnections():
-        # Some XP and Vista systems can only have 10 outgoing connections
-        # at a time.
+        # Some XP and Vista systems can only have 10 outgoing connections at a time.
         state.maximumNumberOfHalfOpenConnections = 9
     else:
         state.maximumNumberOfHalfOpenConnections = 64
-
-    # don't overload Tor
-    if BMConfigParser().safeGet(
-            'bitmessagesettings', 'socksproxytype', 'none') != 'none':
-        state.maximumNumberOfHalfOpenConnections = 4
-
+    try:
+        # don't overload Tor
+        if BMConfigParser().get('bitmessagesettings', 'socksproxytype') != 'none':
+            state.maximumNumberOfHalfOpenConnections = 4
+    except:
+        pass
+    
     with knownnodes.knownNodesLock:
         if streamNumber not in knownnodes.knownNodes:
             knownnodes.knownNodes[streamNumber] = {}
@@ -97,7 +93,6 @@ def connectToStream(streamNumber):
             knownnodes.knownNodes[streamNumber*2+1] = {}
 
     BMConnectionPool().connectToStream(streamNumber)
-
 
 def _fixSocket():
     if sys.platform.startswith('linux'):
@@ -110,7 +105,6 @@ def _fixSocket():
     # socket.inet_ntop but we can make one ourselves using ctypes
     if not hasattr(socket, 'inet_ntop'):
         addressToString = ctypes.windll.ws2_32.WSAAddressToStringA
-
         def inet_ntop(family, host):
             if family == socket.AF_INET:
                 if len(host) != 4:
@@ -131,7 +125,6 @@ def _fixSocket():
     # Same for inet_pton
     if not hasattr(socket, 'inet_pton'):
         stringToAddress = ctypes.windll.ws2_32.WSAStringToAddressA
-
         def inet_pton(family, host):
             buf = "\0" * 28
             lengthBuf = pack("I", len(buf))
@@ -155,34 +148,25 @@ def _fixSocket():
     if not hasattr(socket, 'IPV6_V6ONLY'):
         socket.IPV6_V6ONLY = 27
 
-
-def _getApiAddress():
-    if BMConfigParser().safeGetBoolean(
-            'bitmessagesettings', 'apienabled'):
-        return [
-            BMConfigParser().get('bitmessagesettings', 'apiinterface'),
-            BMConfigParser().getint('bitmessagesettings', 'apiport')
-        ]
-
-
 # This thread, of which there is only one, runs the API.
 class singleAPI(threading.Thread, helper_threading.StoppableThread):
     def __init__(self):
         threading.Thread.__init__(self, name="singleAPI")
-        self.address = _getApiAddress()
         self.initStop()
-
+        
     def stopThread(self):
         super(singleAPI, self).stopThread()
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         try:
-            s.connect(self.api_address)
+            s.connect((BMConfigParser().get('bitmessagesettings', 'apiinterface'), BMConfigParser().getint(
+                'bitmessagesettings', 'apiport')))
             s.shutdown(socket.SHUT_RDWR)
             s.close()
         except:
             pass
 
     def run(self):
+        port = BMConfigParser().getint('bitmessagesettings', 'apiport')
         try:
             from errno import WSAEADDRINUSE
         except (ImportError, AttributeError):
@@ -190,26 +174,19 @@ class singleAPI(threading.Thread, helper_threading.StoppableThread):
         for attempt in range(50):
             try:
                 if attempt > 0:
-                    self.address[1] = randint(32767, 65535)
-                se = StoppableXMLRPCServer(
-                    self.address,
+                    port = randint(32767, 65535)
+                se = StoppableXMLRPCServer((BMConfigParser().get('bitmessagesettings', 'apiinterface'), port),
                     MySimpleXMLRPCRequestHandler, True, True)
             except socket.error as e:
                 if e.errno in (errno.EADDRINUSE, errno.WSAEADDRINUSE):
                     continue
-            except TypeError:
-                return
             else:
                 if attempt > 0:
-                    BMConfigParser().set(
-                        "bitmessagesettings", "apiport", self.address[1])
+                    BMConfigParser().set("bitmessagesettings", "apiport", str(port))
                     BMConfigParser().save()
                 break
-        else:
-            return
         se.register_introspection_functions()
         se.serve_forever()
-
 
 # This is a list of current connections (the thread pointers at least)
 selfInitiatedConnections = {}
@@ -220,17 +197,14 @@ if shared.useVeryEasyProofOfWorkForTesting:
     defaults.networkDefaultPayloadLengthExtraBytes = int(
         defaults.networkDefaultPayloadLengthExtraBytes / 100)
 
-
 class Main:
     def start(self):
         _fixSocket()
 
-        daemon = BMConfigParser().safeGetBoolean(
-            'bitmessagesettings', 'daemon')
+        daemon = BMConfigParser().safeGetBoolean('bitmessagesettings', 'daemon')
 
         try:
-            opts, args = getopt.getopt(
-                sys.argv[1:], "hcd",
+            opts, args = getopt.getopt(sys.argv[1:], "hcd",
                 ["help", "curses", "daemon"])
 
         except getopt.GetoptError:
@@ -259,82 +233,66 @@ class Main:
         helper_threading.set_thread_name("PyBitmessage")
 
         state.dandelion = BMConfigParser().safeGetInt('network', 'dandelion')
-        # dandelion requires outbound connections, without them,
-        # stem objects will get stuck forever
-        if state.dandelion and not BMConfigParser().safeGetBoolean(
-                'bitmessagesettings', 'sendoutgoingconnections'):
+        # dandelion requires outbound connections, without them, stem objects will get stuck forever
+        if state.dandelion and not BMConfigParser().safeGetBoolean('bitmessagesettings', 'sendoutgoingconnections'):
             state.dandelion = 0
 
         helper_bootstrap.knownNodes()
         # Start the address generation thread
         addressGeneratorThread = addressGenerator()
-        # close the main program even if there are threads left
-        addressGeneratorThread.daemon = True
+        addressGeneratorThread.daemon = True  # close the main program even if there are threads left
         addressGeneratorThread.start()
 
         # Start the thread that calculates POWs
         singleWorkerThread = singleWorker()
-        # close the main program even if there are threads left
-        singleWorkerThread.daemon = True
+        singleWorkerThread.daemon = True  # close the main program even if there are threads left
         singleWorkerThread.start()
 
         # Start the SQL thread
         sqlLookup = sqlThread()
-        # DON'T close the main program even if there are threads left.
-        # The closeEvent should command this thread to exit gracefully.
-        sqlLookup.daemon = False
+        sqlLookup.daemon = False  # DON'T close the main program even if there are threads left. The closeEvent should command this thread to exit gracefully.
         sqlLookup.start()
 
-        Inventory()  # init
-        # init, needs to be early because other thread may access it early
-        Dandelion()
+        Inventory() # init
+        Dandelion() # init, needs to be early because other thread may access it early
 
         # SMTP delivery thread
-        if daemon and BMConfigParser().safeGet(
-                "bitmessagesettings", "smtpdeliver", ''):
+        if daemon and BMConfigParser().safeGet("bitmessagesettings", "smtpdeliver", '') != '':
             smtpDeliveryThread = smtpDeliver()
             smtpDeliveryThread.start()
 
         # SMTP daemon thread
-        if daemon and BMConfigParser().safeGetBoolean(
-                "bitmessagesettings", "smtpd"):
+        if daemon and BMConfigParser().safeGetBoolean("bitmessagesettings", "smtpd"):
             smtpServerThread = smtpServer()
             smtpServerThread.start()
 
         # Start the thread that calculates POWs
         objectProcessorThread = objectProcessor()
-        # DON'T close the main program even the thread remains.
-        # This thread checks the shutdown variable after processing
-        # each object.
-        objectProcessorThread.daemon = False
+        objectProcessorThread.daemon = False  # DON'T close the main program even the thread remains. This thread checks the shutdown variable after processing each object.
         objectProcessorThread.start()
 
         # Start the cleanerThread
         singleCleanerThread = singleCleaner()
-        # close the main program even if there are threads left
-        singleCleanerThread.daemon = True
+        singleCleanerThread.daemon = True  # close the main program even if there are threads left
         singleCleanerThread.start()
 
         shared.reloadMyAddressHashes()
         shared.reloadBroadcastSendersForWhichImWatching()
 
-        singleAPIThread = singleAPI()
-        singleAPIThread.daemon = True
-        singleAPIThread.start()
-
-        # FIXME: this should be inside of singleAPI instance
-        if singleAPIThread.address:  # apienabled
-            apiNotifyPath = BMConfigParser().safeGet(
-                'bitmessagesettings', 'apinotifypath', '')
-            if apiNotifyPath:
+        if BMConfigParser().safeGetBoolean('bitmessagesettings', 'apienabled'):
+            try:
+                apiNotifyPath = BMConfigParser().get(
+                    'bitmessagesettings', 'apinotifypath')
+            except:
+                apiNotifyPath = ''
+            if apiNotifyPath != '':
                 with shared.printLock:
-                    print('Trying to call %s' % apiNotifyPath)
-                try:
-                    call([apiNotifyPath, "startingUp"])
-                except OSError:
-                    print('Invalid executable path!')
-                    BMConfigParser().remove_option(
-                        'bitmessagesettings', 'apinotifypath')
+                    print('Trying to call', apiNotifyPath)
+
+                call([apiNotifyPath, "startingUp"])
+            singleAPIThread = singleAPI()
+            singleAPIThread.daemon = True  # close the main program even if there are threads left
+            singleAPIThread.start()
 
         BMConnectionPool()
         asyncoreThread = BMNetworkThread()
@@ -359,39 +317,26 @@ class Main:
 
         connectToStream(1)
 
-        if BMConfigParser().safeGetBoolean('bitmessagesettings', 'upnp'):
+        if BMConfigParser().safeGetBoolean('bitmessagesettings','upnp'):
             import upnp
             upnpThread = upnp.uPnPThread()
             upnpThread.start()
 
-        if daemon is False and \
-            BMConfigParser().safeGetBoolean(
-                'bitmessagesettings', 'daemon') is False:
-            if state.curses is False:
+        if daemon == False and BMConfigParser().safeGetBoolean('bitmessagesettings', 'daemon') == False:
+            if state.curses == False:
                 if not depends.check_pyqt():
-                    print(
-                        'PyBitmessage requires PyQt unless you want'
-                        ' to run it as a daemon and interact with it'
-                        ' using the API. You can download PyQt from '
-                        'http://www.riverbankcomputing.com/software/pyqt/download'
-                        ' or by searching Google for \'PyQt Download\'.'
-                        ' If you want to run in daemon mode, see '
-                        'https://bitmessage.org/wiki/Daemon'
-                    )
-                    print(
-                        'You can also run PyBitmessage with'
-                        ' the new curses interface by providing'
-                        ' \'-c\' as a commandline argument.'
-                    )
+                    print('PyBitmessage requires PyQt unless you want to run it as a daemon and interact with it using the API. You can download PyQt from http://www.riverbankcomputing.com/software/pyqt/download   or by searching Google for \'PyQt Download\'. If you want to run in daemon mode, see https://bitmessage.org/wiki/Daemon')
+                    print('You can also run PyBitmessage with the new curses interface by providing \'-c\' as a commandline argument.')
                     sys.exit()
 
                 import bitmessageqt
                 bitmessageqt.run()
             else:
-                # if depends.check_curses():
-                print('Running with curses')
-                import bitmessagecurses
-                bitmessagecurses.runwrapper()
+                if True:
+#                if depends.check_curses():
+                    print('Running with curses')
+                    import bitmessagecurses
+                    bitmessagecurses.runwrapper()
         else:
             BMConfigParser().remove_option('bitmessagesettings', 'dontconnect')
 
@@ -415,8 +360,7 @@ class Main:
             pass
         else:
             parentPid = os.getpid()
-            shared.thisapp.lock()  # relock
-
+            shared.thisapp.lock() # relock
         os.umask(0)
         try:
             os.setsid()
@@ -435,8 +379,8 @@ class Main:
             # fork not implemented
             pass
         else:
-            shared.thisapp.lock()  # relock
-        shared.thisapp.lockPid = None  # indicate we're the final child
+            shared.thisapp.lock() # relock
+        shared.thisapp.lockPid = None # indicate we're the final child
         sys.stdout.flush()
         sys.stderr.flush()
         if not sys.platform.startswith('win'):
@@ -473,10 +417,18 @@ All parameters are optional.
         shutdown.doCleanShutdown()
 
 
+    #TODO: nice function but no one is using this 
+    def getApiAddress(self):
+        if not BMConfigParser().safeGetBoolean('bitmessagesettings', 'apienabled'):
+            return None
+        address = BMConfigParser().get('bitmessagesettings', 'apiinterface')
+        port = BMConfigParser().getint('bitmessagesettings', 'apiport')
+        return {'address':address,'port':port}
+
+
 def main():
     mainprogram = Main()
     mainprogram.start()
-
 
 if __name__ == "__main__":
     main()
