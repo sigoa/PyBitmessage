@@ -8,7 +8,7 @@ another person or to many subscribers. It is decentralized and trustless,
 meaning that you need-not inherently trust any entities like root certificate
 authorities. It uses strong authentication, which means that the sender of a
 message cannot be spoofed, and it aims to hide metadata, like the
-sender and receiver of messages, from passive eavesdroppers like those running
+sender and receiver of messages, from passive eavesdroppers like those ongoing
 warrantless wiretapping programs.
 
 Development
