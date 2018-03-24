@@ -15,3 +15,5 @@ dist
 *.egg-info
 /sloconn.diff
 /.gitignore
+/src/debug.log
+/src/singleton.lock
