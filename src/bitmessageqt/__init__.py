@@ -4038,7 +4038,7 @@ class MyForm(settingsmixin.SMainWindow):
         except IndexError:
             message = _translate(
                 "MainWindow",
-                "Error occurred: could not load message from disk."
+                "Error occurred (rather than this being a BitMessage on display) : could not load message from disk."
             )
         else:
             tableWidget = self.getCurrentMessagelist()
