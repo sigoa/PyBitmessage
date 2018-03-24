@@ -11,12 +11,9 @@ message cannot be spoofed, and it aims to hide metadata, like the
 sender and receiver of messages, from passive eavesdroppers like those ongoing
 warrantless wiretapping programs.
 
-Development
-----------
-Bitmessage is a collaborative project. You are welcome to submit pull requests. 
+Development: Bitmessage is a collaborative project. You are welcome to submit pull requests. 
 
 References
-----------
 * [Project Website](https://bitmessage.org)
 * [Protocol Specification](https://bitmessage.org/wiki/Protocol_specification)
 * [Whitepaper](https://bitmessage.org/bitmessage.pdf)
