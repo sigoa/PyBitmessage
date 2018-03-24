@@ -278,5 +278,4 @@ if __name__ == "__main__":
     print 'addressVersionNumber', addressVersionNumber
     print 'streamNumber', streamNumber
     print 'length of data(the ripe hash):', len(data)
-    print 'ripe data:', hexlify(data)
-
+    print 'ripe data:', hexlify(data) 
